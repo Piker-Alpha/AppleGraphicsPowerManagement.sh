@@ -3,13 +3,14 @@
 #
 # Script (AppleGraphicsPowerManagement.sh) to inject the AGPM dictionary from the AppleHDA support kext Info.plist
 #
-# Version 0.7 - Copyright (c) 2014 by Pike R. Alpha
+# Version 0.8 - Copyright (c) 2014 by Pike R. Alpha
 #
 # Updates:
 #			- Variable 'gID' was missing (Pike R. Alpha, January 2014)
 #			- Removed calls to sudo (Pike R. Alpha, January 2014)
 #			- Variable 'gCallOpen' added (Pike R. Alpha, January 2014)
 #			- Now lets you skip opening the Info.plist (Pike R. Alpha, January 2014)
+#			- Use ALC of running system to update the filename (Pike R. Alpha, January 2014)
 #
 #
 # Example with a MacPro6,1 board-id:
@@ -49,7 +50,7 @@
 #
 # Script version info.
 #
-gScriptVersion=0.7
+gScriptVersion=0.8
 
 #
 # Setting the debug mode (default on).
@@ -74,9 +75,28 @@ STYLE_BOLD="[1m"
 STYLE_UNDERLINED="[4m"
 
 #
-# Change this path so that it points to the file that you want to change.
+# Default ALC. Updated in function _getALC to match the codec of the running system.
 #
-gInfoPlist="/System/Library/Extensions/AppleHDA892.kext/Contents/Info.plist"
+gKextID="unknown"
+
+#
+# This is the name of the target kext, but without the extension (.kext)
+#
+# Note: Updated in function _checkTargetFile()
+#
+gKextName="AppleHDA${gKextID}"
+
+#
+# Change this path accordantly.
+#
+gTargetDirectory="/System/Library/Extensions"
+
+#
+# Initialise variable with Info.plist filename.
+#
+# Note: Updated in function _checkTargetFile()
+#
+gInfoPlist="${gTargetDirectory}/${gKextName}.kext/Contents/Info.plist"
 
 #
 # The initial board-id. Set later on in the script.
@@ -102,7 +122,7 @@ let gCallOpen=2
 function _showHeader()
 {
   printf "AppleGraphicsPowerManagement.sh v${gScriptVersion} Copyright (c) $(date "+%Y") by Pike R. Alpha\n"
-  echo -e '------------------------------------------------------------------------\n'
+  echo -e '------------------------------------------------------------------------'
 }
 
 #
@@ -190,8 +210,74 @@ function _getBoardID()
 #--------------------------------------------------------------------------------
 #
 
+function _getALC()
+{
+  #
+  # -r = Show subtrees rooted by objects that match the specified criteria (-p and -k)
+  # -x = Show data and numbers as hexadecimal (see note below)
+  # -p = Traverse the registry plane 'IOService'
+  # -c = Show the object properties only if the object is an instance of 'AppleHDAController'
+  # -k = Show the object properties only if the object has one with the name 'CodecList'
+  #
+  ioreg -rxp IOService -c AppleHDAController -k CodecList | grep CodecList | sed -e 's/.*VendorProductID"=//' -e 's/})$//' > /tmp/CodecList.txt
+  #
+  # cat /tmp/CodecList.txt returns on my rig:
+  #
+  # 0xffffffff80862807
+  # 0x10ec0892
+  #
+  local codecList=$(cat /tmp/CodecList.txt)
+  #
+  # Loop through the list (should be at least two).
+  #
+  for codecID in ${codecList[@]}
+  do
+    #
+    # Convert codeID into something that we can use.
+    #
+    # Note: 'getconf LONG_MAX' returns 9223372036854775807 (0x7FFFFFFFFFFFFFFF)
+    #       and thus we cannot convert something like 0xffffffff80862807 without
+    #       first stripping the 'ffffffff' off of it.
+    #
+    codecString=$(echo $codecID | sed -e 's/ffffffff//g')
+    let codecDecimal=$codecString
+    #
+    # Check codec vendor-id/product-id
+    #
+    if (( $codecDecimal > 0x10ec0000  && $codecDecimal < 0x10ec0999));
+      then
+        #
+        # Yes. Use it.
+        #
+        gKextID=$(echo "${codecString:6:4}" | sed 's/^0//')
+        _DEBUG_PRINT "ALC ${gKextID} found\n\n"
+      else
+        #
+        # No. Skip it (presumably some Intel HDAU device).
+        #
+        continue
+    fi
+  done
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
 function _checkTargetFile()
 {
+  #
+  # Codec found?
+  #
+  if [[ $gALC != "unknown" ]];
+    then
+      #
+      # Yes. Re-init variables.
+      #
+      gKextName="AppleHDA${gKextID}"
+      gInfoPlist="${gTargetDirectory}/${gKextName}.kext/Contents/Info.plist"
+  fi
   #
   # The target file exists?
   #
@@ -267,6 +353,7 @@ function main()
 {
   _showHeader
   _getBoardID
+  _getALC
   _checkTargetFile
   #
   # Do we have a board-id?
@@ -320,7 +407,8 @@ function main()
         echo ''
         read -p "Do you want to open the Info.plist? (y/n) " choice
         case "$choice" in
-              y|Y ) open "$gInfoPlist"
+              y|Y ) _DEBUG_PRINT "Target file: ${gInfoPlist}\n"
+                    open "${gInfoPlist}"
                     ;;
         esac
   fi
@@ -332,7 +420,7 @@ function main()
       #
       # Yes. Touch the Extensions directory.
       #
-      _DEBUG_PRINT "Triggering a kernelcache refresh ...\n"
+      _DEBUG_PRINT "Triggering a kernelcache refresh ...\n\n"
       touch /System/Library/Extensions
 
       read -p "Do you want to reboot now? (y/n) " choice
