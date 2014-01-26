@@ -3,10 +3,13 @@
 #
 # Script (AppleGraphicsPowerManagement.sh) to inject the AGPM dictionary from the AppleHDA support kext Info.plist
 #
-# Version 0.6 - Copyright (c) 2014 by Pike R. Alpha
+# Version 0.7 - Copyright (c) 2014 by Pike R. Alpha
 #
 # Updates:
-#			- 
+#			- Variable 'gID' was missing (Pike R. Alpha, January 2014)
+#			- Removed calls to sudo (Pike R. Alpha, January 2014)
+#			- Variable 'gCallOpen' added (Pike R. Alpha, January 2014)
+#			- Now lets you skip opening the Info.plist (Pike R. Alpha, January 2014)
 #
 #
 # Example with a MacPro6,1 board-id:
@@ -46,12 +49,17 @@
 #
 # Script version info.
 #
-gScriptVersion=0.6
+gScriptVersion=0.7
 
 #
 # Setting the debug mode (default on).
 #
 let DEBUG=1
+
+#
+# Get user id
+#
+let gID=$(id -u)
 
 #
 # Change this to 0 if you don't want additional styling (bold/underlined).
@@ -68,7 +76,7 @@ STYLE_UNDERLINED="[4m"
 #
 # Change this path so that it points to the file that you want to change.
 #
-gTargetFile="/System/Library/Extensions/AppleHDA892.kext/Contents/Info.plist"
+gInfoPlist="/System/Library/Extensions/AppleHDA892.kext/Contents/Info.plist"
 
 #
 # The initial board-id. Set later on in the script.
@@ -79,6 +87,12 @@ gBoardID="unknown"
 # The first (delete) PlistBuddy command number.
 #
 let gCommandNumber=1
+
+#
+# A value of 1 will open Info.plist in the editor of your choice.
+# A value of 2 will first ask for your confirmation before it opens the file.
+#
+let gCallOpen=2
 
 
 #
@@ -181,7 +195,7 @@ function _checkTargetFile()
   #
   # The target file exists?
   #
-  if [[ -e "$gTargetFile" ]];
+  if [[ -e "$gInfoPlist" ]];
     then
       #
       # Yes. Return success status.
@@ -210,7 +224,7 @@ function _doCommand()
   #
   # Run given command on target file.
   #
-  sudo /usr/libexec/PlistBuddy -c "${1}" "$gTargetFile"
+  /usr/libexec/PlistBuddy -c "${1}" "$gInfoPlist"
   #
   # Checking status; Failure?
   #
@@ -290,27 +304,43 @@ function main()
       _doCommand "Add :IOKitPersonalities:AGPM:Machines:${gBoardID}:IGPU:control-id integer 16"
   fi
   #
+  # Should we open the Info.plist?
+  #
+  if [[ $gCallOpen -eq 1 ]];
+    then
+      #
+      # Yes. Open file.
+      #
+      open "$gInfoPlist"
+    elif [[ $gCallOpen -eq 2 ]];
+      #
+      # Yes, but conditionally (asks for confirmation).
+      #
+      then
+        echo ''
+        read -p "Do you want to open the Info.plist? (y/n) " choice
+        case "$choice" in
+              y|Y ) open "$gInfoPlist"
+                    ;;
+        esac
+  fi
+  #
   # Do we have to trigger a kernel cache refresh?
   #
-  if [[ $gTargetFile =~ "/System/Library/Extensions/" ]];
+  if [[ "$gInfoPlist" =~ "/System/Library/Extensions/" ]];
     then
       #
       # Yes. Touch the Extensions directory.
       #
       _DEBUG_PRINT "Triggering a kernelcache refresh ...\n"
-      sudo touch /System/Library/Extensions
+      touch /System/Library/Extensions
 
-      read -p "Do you want to reboot now? (y/n) " choice2
-      case "$choice2" in
-            y|Y ) sudo reboot now
+      read -p "Do you want to reboot now? (y/n) " choice
+      case "$choice" in
+            y|Y ) reboot now
                   ;;
       esac
   fi
-  #
-  # Not everyone would like to have the plist opened automatically. Let's
-  # add a read -p "sometext (y/n) ?" choice here, or add a flag for it.
-  #
-  open "$gTargetFile"
   #
   # Fancy output style?
   #
