@@ -3,7 +3,7 @@
 #
 # Script (AppleGraphicsPowerManagement.sh) to inject the AGPM dictionary from the AppleHDA support kext Info.plist
 #
-# Version 0.8 - Copyright (c) 2014 by Pike R. Alpha
+# Version 0.9 - Copyright (c) 2014 by Pike R. Alpha
 #
 # Updates:
 #			- Variable 'gID' was missing (Pike R. Alpha, January 2014)
@@ -11,6 +11,10 @@
 #			- Variable 'gCallOpen' added (Pike R. Alpha, January 2014)
 #			- Now lets you skip opening the Info.plist (Pike R. Alpha, January 2014)
 #			- Use ALC of running system to update the filename (Pike R. Alpha, January 2014)
+#			- Convert 900 to 1150 or we run into: Error: File Not Found! Aborting … (Pike R. Alpha, January 2014)
+#
+# Contributers:
+#			- Thanks to 'Fabio1971' for reporting the ALC 900/1150 conversion error.
 #
 #
 # Example with a MacPro6,1 board-id:
@@ -50,7 +54,7 @@
 #
 # Script version info.
 #
-gScriptVersion=0.8
+gScriptVersion=0.9
 
 #
 # Setting the debug mode (default on).
@@ -237,7 +241,7 @@ function _getALC()
     #
     # Note: 'getconf LONG_MAX' returns 9223372036854775807 (0x7FFFFFFFFFFFFFFF)
     #       and thus we cannot convert something like 0xffffffff80862807 without
-    #       first stripping the 'ffffffff' off of it.
+    #       first stripping the 'ffffffff' off of it (otherwise it is too big).
     #
     codecString=$(echo $codecID | sed -e 's/ffffffff//g')
     let codecDecimal=$codecString
@@ -247,10 +251,21 @@ function _getALC()
     if (( $codecDecimal > 0x10ec0000  && $codecDecimal < 0x10ec0999));
       then
         #
-        # Yes. Use it.
+        # Yes. Take the last three digits and use that for ALC.
         #
-        gKextID=$(echo "${codecString:6:4}" | sed 's/^0//')
-        _DEBUG_PRINT "ALC ${gKextID} found\n\n"
+        gKextID="${codecString:7:3}"
+        #
+        # Is this an ALC 900?
+        #
+       if [[ $gKextID == "900" ]];
+         then
+           #
+           # Yes. Convert it to the right value.
+           #
+           gKextID="1150"
+       fi
+
+       _DEBUG_PRINT "ALC ${gKextID} found\n\n"
       else
         #
         # No. Skip it (presumably some Intel HDAU device).
